@@ -19,6 +19,7 @@ To run this tool, you only need:
 
 - [ThrottleGearXML.py](ThrottleGearXML.py): The standalone Python script.
 - [Documentation/DETAILS.md](Documentation/DETAILS.md): Detailed explanation of the cryptography internals and parameter derivation.
+- [LICENSE](LICENSE): The MIT License for the Python script.
 
 *(Note: No proprietary XML configuration files are hosted in this repository. You must copy your own configuration file from your system).*
 
