@@ -676,7 +676,7 @@ def main():
         
         if args.generate_patch:
             # Determine default Git user if not provided
-            def_user = "Marco Scardovi <scardracs@disroot.org>"
+            def_user = "Your Name <your.email@example.com>"
             import subprocess
             try:
                 name = subprocess.check_output(["git", "config", "user.name"]).decode("utf-8").strip()
