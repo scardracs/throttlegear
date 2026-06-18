@@ -152,6 +152,16 @@ def decrypt_xml(root, key, iv):
     for elem in list(root):
         tag = elem.tag
         if tag.endswith("EncryptedData"):
+            enc_method_elem = elem.find(".//{http://www.w3.org/2001/04/xmlenc#}EncryptionMethod")
+            if enc_method_elem is None:
+                enc_method_elem = elem.find(".//EncryptionMethod")
+                
+            if enc_method_elem is not None:
+                algo = enc_method_elem.attrib.get("Algorithm")
+                if algo != "http://www.w3.org/2001/04/xmlenc#aes256-cbc":
+                    sys.stderr.write(f"Error: Unsupported encryption algorithm: {algo}\n")
+                    sys.exit(1)
+                    
             cipher_val_elem = elem.find(".//{http://www.w3.org/2001/04/xmlenc#}CipherValue")
             if cipher_val_elem is None:
                 cipher_val_elem = elem.find(".//CipherValue")
