@@ -1,2 +1,5 @@
+# We don't want to risk publishing .xml files
 *.xml
+
+# Also we don't want to publish any patches as we don't need them here
 patches/
