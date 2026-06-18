@@ -146,6 +146,7 @@ def encrypt_aes_256_cbc(plaintext, key, iv):
         libcrypto.EVP_CIPHER_CTX_free(ctx)
 
 def decrypt_xml(root, key, iv):
+    min_loader_version = root.attrib.get("MinLoaderVersion", "5.7.7.0")
     decrypted_children = []
     
     for elem in list(root):
@@ -170,13 +171,14 @@ def decrypt_xml(root, key, iv):
                 decrypted_children.append(decrypted_elem)
                 
     root.clear()
-    root.attrib["MinLoaderVersion"] = "5.7.7.0"
+    root.attrib["MinLoaderVersion"] = min_loader_version
     root.attrib["Cryptography"] = "Decrypted"
     
     for child in decrypted_children:
         root.append(child)
 
 def encrypt_xml(root, key, iv):
+    min_loader_version = root.attrib.get("MinLoaderVersion", "5.7.7.0")
     encrypted_children = []
     xmlenc_ns = "http://www.w3.org/2001/04/xmlenc#"
     ET.register_namespace("", xmlenc_ns)
@@ -206,7 +208,7 @@ def encrypt_xml(root, key, iv):
         encrypted_children.append(encrypted_data_elem)
         
     root.clear()
-    root.attrib["MinLoaderVersion"] = "5.7.7.0"
+    root.attrib["MinLoaderVersion"] = min_loader_version
     root.attrib["Cryptography"] = "Encrypted"
     
     for child in encrypted_children:
