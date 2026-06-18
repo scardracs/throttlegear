@@ -52,14 +52,14 @@ python ThrottleGearXML.py -i ThrottleGear_YOURMODEL.xml -c
 ```
 
 **Additional Options for C Struct & Patch Generation:**
-*   `-p <profile>` / `--profile <profile>` (or `-d` / `--device`): Specifies the platform/device profile tag under the root to extract settings from (e.g. `Ryzen` or `Eng`). If not specified and multiple exist, the script lists available profiles, emits a warning, and defaults to the first one.
-*   `--gpu-base-tgp <watts>`: Specifies the baseline GPU TGP in Watts (default is `55`). This base value is added to the XML's GPU TGP offsets to produce absolute limits (e.g., `65W` base + `50W` offset = `115W` max).
-*   `--no-fan-curve`: Sets `.requires_fan_curve = false` in the generated struct (defaults to `true`).
-*   `--generate-patch`: Generates a fully formatted Git patch for the Linux kernel `asus-armoury` driver. It reads the driver's header, inserts the new entry alphabetically into the `power_limits[]` table, generates a unified diff, and saves it under the `patches/` directory.
-*   `--kernel-dir <path>`: Path to a local Linux kernel source tree. If specified, the tool reads and patches the local `drivers/platform/x86/asus-armoury.h` file. If omitted, the header is dynamically fetched from the Torvalds mainline repository on GitHub.
-*   `--patch-dir <path>`: Directory where the generated Git patch file will be saved (defaults to `patches/` in the workspace).
-*   `--author <name_and_email>`: Author of the kernel patch (format: `'Name <email>'`). Defaults to the Git user configuration (`user.name` and `user.email`), or a generic fallback if not configured.
-*   `--sob <name_and_email>` / `--signed-off-by <name_and_email>`: Signed-off-by trailer of the kernel patch (format: `'Name <email>'`). Defaults to the patch author.
+*   `-p <profile>` / `--profile <profile>` (or `--device`): Specifies the platform/device profile tag under the root to extract settings from (e.g. `Ryzen` or `Eng`). If not specified and multiple exist, the script lists available profiles, emits a warning, and defaults to the first one.
+*   `-g <watts>` / `--gpu-base-tgp <watts>`: Specifies the baseline GPU TGP in Watts (default is `55`). This base value is added to the XML's GPU TGP offsets to produce absolute limits (e.g., `65W` base + `50W` offset = `115W` max).
+*   `-n` / `--no-fan-curve`: Sets `.requires_fan_curve = false` in the generated struct (defaults to `true`).
+*   `-P` / `--generate-patch`: Generates a fully formatted Git patch for the Linux kernel `asus-armoury` driver. It reads the driver's header, inserts the new entry alphabetically into the `power_limits[]` table, generates a unified diff, and saves it under the `patches/` directory. **Note: `-A/--author` and `-S/--sob` are mandatory when this option is set.**
+*   `-k <path>` / `--kernel-dir <path>`: Path to a local Linux kernel source tree. If specified, the tool reads and patches the local `drivers/platform/x86/asus-armoury.h` file. If omitted, the header is dynamically fetched from the Torvalds mainline repository on GitHub.
+*   `-d <path>` / `--patch-dir <path>`: Directory where the generated Git patch file will be saved (defaults to `patches/` in the workspace).
+*   `-A <name_and_email>` / `--author <name_and_email>`: Author of the kernel patch (format: `'Name <email>'`). **Mandatory when generating a patch.**
+*   `-S <name_and_email>` / `--sob <name_and_email>` / `--signed-off-by <name_and_email>`: Signed-off-by trailer of the kernel patch (format: `'Name <email>'`). **Mandatory when generating a patch.**
 
 ---
 
