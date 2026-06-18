@@ -708,15 +708,15 @@ def main():
     parser.add_argument("-P", "--generate-patch", action="store_true", help="Generate and save a unified diff kernel patch")
     parser.add_argument("-k", "--kernel-dir", help="Path to local Linux kernel directory containing drivers/platform/x86/asus-armoury.h")
     parser.add_argument("-d", "--patch-dir", help="Directory to save the generated patch file (defaults to 'patches')")
-    parser.add_argument("-A", "--author", help="Author of the kernel patch (format: 'Name <email>')")
-    parser.add_argument("-S", "--sob", "--signed-off-by", dest="sob", help="Signed-off-by trailer of the kernel patch (format: 'Name <email>')")
+    parser.add_argument("-U", "--username", help="Username of the patch author (e.g. 'Jane Doe')")
+    parser.add_argument("-E", "--email", "--mail", dest="email", help="Email of the patch author (e.g. 'jane@example.com')")
     args = parser.parse_args()
     
     input_path = os.path.abspath(args.input)
     
     if args.generate_patch:
-        if not args.author or not args.sob:
-            parser.error("-A/--author and -S/--sob/--signed-off-by are required when -P/--generate-patch is specified.")
+        if not args.username or not args.email:
+            parser.error("-U/--username and -E/--email/--mail are required when -P/--generate-patch is specified.")
             
     if args.c_struct or args.generate_patch:
         try:
@@ -745,7 +745,9 @@ def main():
         c_struct_str, profile_used = generate_c_struct(root, profile=args.profile, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
         
         if args.generate_patch:
-            generate_patch_file(model_name, profile_used, c_struct_str, args.author, args.sob, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
+            email_clean = args.email.strip("<>")
+            author_identity = f"{args.username} <{email_clean}>"
+            generate_patch_file(model_name, profile_used, c_struct_str, author_identity, author_identity, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
         else:
             print(c_struct_str)
     else:
