@@ -482,7 +482,7 @@ def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=Tr
     
     return "\n".join(lines), profile_used
 
-def generate_patch_file(model_name, profile_name, c_struct_str, kernel_dir=None, patch_dir=None):
+def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, kernel_dir=None, patch_dir=None):
     import re
     import urllib.request
     import difflib
@@ -591,7 +591,7 @@ def generate_patch_file(model_name, profile_name, c_struct_str, kernel_dir=None,
     date_str = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0200")
     
     patch_content = f"""From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Marco Scardovi <scardracs@disroot.org>
+From: {author}
 Date: {date_str}
 Subject: [PATCH] platform/x86: asus-armoury: Add power limits quirk for {model_name}
 
@@ -599,8 +599,8 @@ Add power limits quirk entry for ASUS ROG {model_name} laptop.
 The limits are extracted from the device's ThrottleGear XML configuration
 file for the '{profile_name}' profile.
 
-Assisted-by: Antigravity:gemini-3.5-flash
-Signed-off-by: Marco Scardovi <scardracs@disroot.org>
+Assisted-by: ThrottleGear
+Signed-off-by: {sob}
 ---
  drivers/platform/x86/asus-armoury.h | {len(c_struct_lines)} +
  1 file changed, {len(c_struct_lines)} insertions(+)
@@ -642,6 +642,8 @@ def main():
     parser.add_argument("--generate-patch", action="store_true", help="Generate and save a unified diff kernel patch")
     parser.add_argument("--kernel-dir", help="Path to local Linux kernel directory containing drivers/platform/x86/asus-armoury.h")
     parser.add_argument("--patch-dir", help="Directory to save the generated patch file (defaults to 'patches')")
+    parser.add_argument("--author", help="Author of the kernel patch (format: 'Name <email>')")
+    parser.add_argument("--sob", "--signed-off-by", dest="sob", help="Signed-off-by trailer of the kernel patch (format: 'Name <email>')")
     args = parser.parse_args()
     
     input_path = os.path.abspath(args.input)
@@ -673,7 +675,21 @@ def main():
         c_struct_str, profile_used = generate_c_struct(root, profile=args.profile, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
         
         if args.generate_patch:
-            generate_patch_file(model_name, profile_used, c_struct_str, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
+            # Determine default Git user if not provided
+            def_user = "Marco Scardovi <scardracs@disroot.org>"
+            import subprocess
+            try:
+                name = subprocess.check_output(["git", "config", "user.name"]).decode("utf-8").strip()
+                email = subprocess.check_output(["git", "config", "user.email"]).decode("utf-8").strip()
+                if name and email:
+                    def_user = f"{name} <{email}>"
+            except Exception:
+                pass
+                
+            author = args.author if args.author else def_user
+            sob = args.sob if args.sob else author
+            
+            generate_patch_file(model_name, profile_used, c_struct_str, author, sob, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
         else:
             print(c_struct_str)
     else:
