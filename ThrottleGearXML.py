@@ -260,12 +260,85 @@ def process_file(input_path, output_path):
         
     print(f"Success! Processed file saved to: {output_path}")
 
-def generate_c_struct(root, gpu_base_tgp=55, requires_fan_curve=True):
+def validate_limits(ac_limits, dc_limits, gpu_base_tgp):
+    warnings = []
+    if gpu_base_tgp < 30 or gpu_base_tgp > 200:
+        warnings.append(f"GPU base TGP ({gpu_base_tgp}W) is outside the typical notebook range (30W-200W).")
+        
+    for name, limits in [("AC", ac_limits), ("DC", dc_limits)]:
+        for key, val in limits.items():
+            if val < 0:
+                warnings.append(f"[{name}] {key} has a negative value ({val}).")
+            
+            # Check temp target bounds
+            if "temp_target" in key:
+                if val < 0 or val > 100:
+                    warnings.append(f"[{name}] Temperature target {key} ({val}°C) is outside realistic range (0°C-100°C).")
+            
+            # Check TGP bounds
+            if "tgp" in key:
+                if val < 0 or val > 500:
+                    warnings.append(f"[{name}] GPU TGP {key} ({val}W) is outside typical range (0W-500W).")
+
+        # Compare min/max
+        for prefix in ["ppt_pl1_spl", "ppt_pl2_sppt", "ppt_pl3_fppt", "ppt_apu_sppt", "ppt_platform_sppt", "nv_temp_target", "nv_dynamic_boost", "nv_tgp"]:
+            min_key = f"{prefix}_min"
+            max_key = f"{prefix}_max"
+            if min_key in limits and max_key in limits:
+                if limits[min_key] > limits[max_key]:
+                    warnings.append(f"[{name}] Min limit {min_key} ({limits[min_key]}) is greater than max limit {max_key} ({limits[max_key]}).")
+                
+                # Check default value bounds
+                def_key = f"{prefix}_def"
+                if def_key in limits:
+                    if limits[def_key] < limits[min_key] or limits[def_key] > limits[max_key]:
+                        warnings.append(f"[{name}] Default limit {def_key} ({limits[def_key]}) is outside [min, max] range [{limits[min_key]}, {limits[max_key]}].")
+                        
+    return warnings
+
+def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=True):
     model_name = root.attrib.get("ModelName", "UNKNOWN")
     
+    # Identify available profiles (children of root containing CPU/GPU settings)
+    available_profiles = [
+        child.tag for child in root 
+        if child.find(".//ThrottlePluginCPUSettings") is not None 
+        or child.find(".//ThrottlePluginGPUSettings") is not None
+    ]
+    
+    profile_used = "Default"
+    if profile:
+        profile_elem = root.find(profile)
+        if profile_elem is None:
+            profile_elem = root.find(f".//{profile}")
+        if profile_elem is None:
+            sys.stderr.write(f"Error: Profile '{profile}' not found in XML.\n")
+            if available_profiles:
+                sys.stderr.write(f"Available profiles: {', '.join(available_profiles)}\n")
+            sys.exit(1)
+        cpu_settings = profile_elem.find(".//ThrottlePluginCPUSettings")
+        gpu_settings = profile_elem.find(".//ThrottlePluginGPUSettings")
+        profile_used = profile
+    else:
+        if len(available_profiles) > 1:
+            sys.stderr.write(f"Warning: Multiple profiles found in XML: {', '.join(available_profiles)}. "
+                             f"Defaulting to '{available_profiles[0]}'. "
+                             f"Use -p/--profile or -d/--device to specify a different one.\n")
+            profile_elem = root.find(available_profiles[0])
+            cpu_settings = profile_elem.find(".//ThrottlePluginCPUSettings")
+            gpu_settings = profile_elem.find(".//ThrottlePluginGPUSettings")
+            profile_used = available_profiles[0]
+        elif len(available_profiles) == 1:
+            profile_elem = root.find(available_profiles[0])
+            cpu_settings = profile_elem.find(".//ThrottlePluginCPUSettings")
+            gpu_settings = profile_elem.find(".//ThrottlePluginGPUSettings")
+            profile_used = available_profiles[0]
+        else:
+            cpu_settings = root.find(".//ThrottlePluginCPUSettings")
+            gpu_settings = root.find(".//ThrottlePluginGPUSettings")
+            
     # Extract AC limits
     ac_limits = {}
-    cpu_settings = root.find(".//ThrottlePluginCPUSettings")
     if cpu_settings is not None:
         overclock_items = cpu_settings.find("OverclockItems")
         if overclock_items is not None:
@@ -290,7 +363,6 @@ def generate_c_struct(root, gpu_base_tgp=55, requires_fan_curve=True):
                             ac_limits[f"{field}_def"] = def_val
                         ac_limits[f"{field}_max"] = max_val
 
-    gpu_settings = root.find(".//ThrottlePluginGPUSettings")
     if gpu_settings is not None:
         gpu_overclock = gpu_settings.find("NonSLIOverclockItems")
         if gpu_overclock is not None:
@@ -378,6 +450,11 @@ def generate_c_struct(root, gpu_base_tgp=55, requires_fan_curve=True):
                         dc_limits["nv_temp_target_min"] = min_val
                         dc_limits["nv_temp_target_max"] = max_val
 
+    # Perform validation checks
+    warnings = validate_limits(ac_limits, dc_limits, gpu_base_tgp)
+    for warning in warnings:
+        sys.stderr.write(f"Warning: {warning}\n")
+
     # Print C struct
     lines = []
     lines.append("\t{")
@@ -403,20 +480,173 @@ def generate_c_struct(root, gpu_base_tgp=55, requires_fan_curve=True):
     lines.append("\t\t},")
     lines.append("\t},")
     
-    return "\n".join(lines)
+    return "\n".join(lines), profile_used
+
+def generate_patch_file(model_name, profile_name, c_struct_str, kernel_dir=None, patch_dir=None):
+    import re
+    import urllib.request
+    import difflib
+    from datetime import datetime
+    
+    header_content = None
+    target_path = None
+    
+    if kernel_dir:
+        target_path = os.path.abspath(os.path.join(kernel_dir, "drivers/platform/x86/asus-armoury.h"))
+        if not os.path.exists(target_path):
+            sys.stderr.write(f"Error: Local header not found at: {target_path}\n")
+            sys.exit(1)
+        try:
+            with open(target_path, "r", encoding="utf-8") as f:
+                header_content = f.read()
+        except Exception as e:
+            sys.stderr.write(f"Error: Failed to read local header: {e}\n")
+            sys.exit(1)
+    else:
+        url = "https://raw.githubusercontent.com/torvalds/linux/master/drivers/platform/x86/asus-armoury.h"
+        print("Fetching mainline asus-armoury.h from GitHub raw...")
+        try:
+            req = urllib.request.Request(
+                url, 
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            with urllib.request.urlopen(req) as response:
+                header_content = response.read().decode('utf-8')
+        except Exception as e:
+            sys.stderr.write(f"Error: Failed to fetch asus-armoury.h from GitHub raw: {e}\n")
+            sys.exit(1)
+            
+    lines = header_content.splitlines()
+    
+    start_idx = -1
+    for i, line in enumerate(lines):
+        if "static const struct dmi_system_id power_limits[]" in line:
+            start_idx = i
+            break
+            
+    if start_idx == -1:
+        sys.stderr.write("Error: Could not find power_limits table in asus-armoury.h\n")
+        sys.exit(1)
+        
+    entries = []
+    current_entry_start = -1
+    current_board_name = None
+    brace_depth = 0
+    array_end_idx = -1
+    
+    for i in range(start_idx + 1, len(lines)):
+        line = lines[i]
+        
+        if "};" in line and brace_depth == 0:
+            array_end_idx = i
+            break
+            
+        open_braces = line.count("{")
+        close_braces = line.count("}")
+        
+        if brace_depth == 0 and open_braces > 0:
+            current_entry_start = i
+            current_board_name = None
+            
+        brace_depth += open_braces - close_braces
+        
+        if brace_depth == 0 and current_entry_start != -1:
+            entries.append({
+                "board_name": current_board_name,
+                "start_idx": current_entry_start,
+                "end_idx": i
+            })
+            current_entry_start = -1
+            
+        if brace_depth > 0:
+            match = re.search(r'DMI_MATCH\(DMI_BOARD_NAME,\s*"([^"]+)"\)', line)
+            if match:
+                current_board_name = match.group(1)
+                
+    if array_end_idx == -1:
+        sys.stderr.write("Error: Could not find end of power_limits table in asus-armoury.h\n")
+        sys.exit(1)
+        
+    insert_line_idx = -1
+    for entry in entries:
+        if entry["board_name"] and entry["board_name"] > model_name:
+            insert_line_idx = entry["start_idx"]
+            break
+    if insert_line_idx == -1:
+        insert_line_idx = array_end_idx
+        
+    c_struct_lines = c_struct_str.splitlines()
+    new_lines = lines[:insert_line_idx] + c_struct_lines + lines[insert_line_idx:]
+    
+    file_rel_path = "drivers/platform/x86/asus-armoury.h"
+    diff_generator = difflib.unified_diff(
+        lines,
+        new_lines,
+        fromfile=f"a/{file_rel_path}",
+        tofile=f"b/{file_rel_path}",
+        lineterm=""
+    )
+    diff_str = "\n".join(diff_generator)
+    
+    date_str = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0200")
+    
+    patch_content = f"""From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Marco Scardovi <scardracs@disroot.org>
+Date: {date_str}
+Subject: [PATCH] platform/x86: asus-armoury: Add power limits quirk for {model_name}
+
+Add power limits quirk entry for ASUS ROG {model_name} laptop.
+The limits are extracted from the device's ThrottleGear XML configuration
+file for the '{profile_name}' profile.
+
+Assisted-by: Antigravity:gemini-3.5-flash
+Signed-off-by: Marco Scardovi <scardracs@disroot.org>
+---
+ drivers/platform/x86/asus-armoury.h | {len(c_struct_lines)} +
+ 1 file changed, {len(c_struct_lines)} insertions(+)
+
+{diff_str}
+-- 
+2.34.1
+"""
+    
+    if not patch_dir:
+        patch_dir = os.path.abspath("patches")
+    else:
+        patch_dir = os.path.abspath(patch_dir)
+        
+    model_patch_dir = os.path.join(patch_dir, model_name)
+    os.makedirs(model_patch_dir, exist_ok=True)
+    
+    patch_file_path = os.path.join(
+        model_patch_dir, 
+        f"0001-platform-x86-asus-armoury-add-power-limits-for-{model_name}.patch"
+    )
+    
+    try:
+        with open(patch_file_path, "w", encoding="utf-8") as f:
+            f.write(patch_content)
+        print(f"Success! Kernel patch saved to: {patch_file_path}")
+    except Exception as e:
+        sys.stderr.write(f"Error: Failed to write patch file: {e}\n")
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(description="ASUS ThrottleGear XML Encryptor/Decryptor & C Struct Generator (Pure Python)")
     parser.add_argument("-i", "--input", required=True, help="Path to the input XML file")
     parser.add_argument("-o", "--output", help="Path to the output XML file (required unless -c is specified)")
     parser.add_argument("-c", "--c-struct", action="store_true", help="Generate and print the C struct for the Linux kernel driver")
+    parser.add_argument("-p", "--profile", "--device", dest="profile", help="Specific profile/device tag to parse from the XML (e.g. Ryzen, Eng)")
     parser.add_argument("--gpu-base-tgp", type=int, default=55, help="NVIDIA base TGP in Watts (default: 55)")
     parser.add_argument("--no-fan-curve", action="store_true", help="Set requires_fan_curve to false in the C struct")
+    parser.add_argument("--generate-patch", action="store_true", help="Generate and save a unified diff kernel patch")
+    parser.add_argument("--kernel-dir", help="Path to local Linux kernel directory containing drivers/platform/x86/asus-armoury.h")
+    parser.add_argument("--patch-dir", help="Directory to save the generated patch file (defaults to 'patches')")
     args = parser.parse_args()
     
     input_path = os.path.abspath(args.input)
     
-    if args.c_struct:
+    if args.c_struct or args.generate_patch:
         try:
             tree = ET.parse(input_path)
         except Exception as e:
@@ -440,11 +670,15 @@ def main():
             root.attrib["Version"] = version_str
             root.attrib["Type"] = type_str
             
-        c_struct_str = generate_c_struct(root, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
-        print(c_struct_str)
+        c_struct_str, profile_used = generate_c_struct(root, profile=args.profile, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
+        
+        if args.generate_patch:
+            generate_patch_file(model_name, profile_used, c_struct_str, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
+        else:
+            print(c_struct_str)
     else:
         if not args.output:
-            parser.error("-o/--output is required unless -c/--c-struct is specified.")
+            parser.error("-o/--output is required unless -c/--c-struct or --generate-patch is specified.")
         output_path = os.path.abspath(args.output)
         process_file(input_path, output_path)
 
