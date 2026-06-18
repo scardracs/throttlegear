@@ -17,7 +17,7 @@ To run this tool, you only need:
 
 ## File Structure
 
-- [ThrottleGearXML.py](ThrottleGearXML.py): The standalone Python script.
+- [ThrottleGear.py](ThrottleGear.py): The standalone Python script.
 - [Documentation/DETAILS.md](Documentation/DETAILS.md): Detailed explanation of the cryptography internals and parameter derivation.
 - [LICENSE](LICENSE): The MIT License for the Python script.
 
@@ -31,12 +31,12 @@ To run the script, specify the input file (`-i` / `--input`) and the output file
 
 ### Decrypting an Encrypted XML file:
 ```bash
-python ThrottleGearXML.py -i ThrottleGear_YOURMODEL.xml -o ThrottleGear_YOURMODEL_decrypted.xml
+python ThrottleGear.py -i ThrottleGear_YOURMODEL.xml -o ThrottleGear_YOURMODEL_decrypted.xml
 ```
 
 ### Encrypting a Plain-Text XML file:
 ```bash
-python ThrottleGearXML.py -i ThrottleGear_YOURMODEL_decrypted.xml -o ThrottleGear_YOURMODEL_encrypted.xml
+python ThrottleGear.py -i ThrottleGear_YOURMODEL_decrypted.xml -o ThrottleGear_YOURMODEL_encrypted.xml
 ```
 
 Upon successful completion, the script will output:
@@ -48,7 +48,7 @@ Success! Processed file saved to: /absolute/path/to/output.xml
 If you are using this tool to compile a quirk entry for the Linux kernel `asus-armoury` driver, you can use the `-c` / `--c-struct` argument. This automatically decrypts the XML in-memory if needed, extracts the power/thermal limits, and formats them as a C struct initialization block:
 
 ```bash
-python ThrottleGearXML.py -i ThrottleGear_YOURMODEL.xml -c
+python ThrottleGear.py -i ThrottleGear_YOURMODEL.xml -c
 ```
 
 **Additional Options for C Struct & Patch Generation:**
