@@ -567,16 +567,82 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
         sys.stderr.write("Error: Could not find end of power_limits table in asus-armoury.h\n")
         sys.exit(1)
         
-    insert_line_idx = -1
-    for entry in entries:
-        if entry["board_name"] and entry["board_name"] > model_name:
-            insert_line_idx = entry["start_idx"]
-            break
-    if insert_line_idx == -1:
-        insert_line_idx = array_end_idx
-        
+    def parse_c_struct_limits(c_struct_lines):
+        ac_limits = {}
+        dc_limits = {}
+        fan_curve = None
+        current_section = None
+        for line in c_struct_lines:
+            if ".ac_data" in line:
+                current_section = "AC"
+            elif ".dc_data" in line:
+                current_section = "DC"
+            elif "requires_fan_curve" in line:
+                match = re.search(r'\.requires_fan_curve\s*=\s*(true|false)', line)
+                if match:
+                    fan_curve = (match.group(1) == "true")
+            else:
+                match = re.search(r'\.([a-z0-9_]+)\s*=\s*([0-9]+)', line)
+                if match:
+                    field = match.group(1)
+                    val = int(match.group(2))
+                    if current_section == "AC":
+                        ac_limits[field] = val
+                    elif current_section == "DC":
+                        dc_limits[field] = val
+        return ac_limits, dc_limits, fan_curve
+
     c_struct_lines = c_struct_str.splitlines()
-    new_lines = lines[:insert_line_idx] + c_struct_lines + lines[insert_line_idx:]
+    
+    # Check if entry already exists
+    existing_entry = None
+    for entry in entries:
+        if entry["board_name"] == model_name:
+            existing_entry = entry
+            break
+            
+    if existing_entry:
+        print(f"\n[INFO] Quirk for model '{model_name}' already exists in asus-armoury.h.")
+        # Parse and compare
+        existing_ac, existing_dc, existing_fan = parse_c_struct_limits(lines[existing_entry["start_idx"] : existing_entry["end_idx"] + 1])
+        new_ac, new_dc, new_fan = parse_c_struct_limits(c_struct_lines)
+        
+        differences = []
+        all_ac_keys = set(existing_ac.keys()) | set(new_ac.keys())
+        for key in sorted(all_ac_keys):
+            old_val = existing_ac.get(key)
+            new_val = new_ac.get(key)
+            if old_val != new_val:
+                differences.append(f"AC limit '{key}': mainline has {old_val}, generated has {new_val}")
+                
+        all_dc_keys = set(existing_dc.keys()) | set(new_dc.keys())
+        for key in sorted(all_dc_keys):
+            old_val = existing_dc.get(key)
+            new_val = new_dc.get(key)
+            if old_val != new_val:
+                differences.append(f"DC limit '{key}': mainline has {old_val}, generated has {new_val}")
+                
+        if existing_fan != new_fan:
+            differences.append(f"requires_fan_curve: mainline has {existing_fan}, generated has {new_fan}")
+            
+        if differences:
+            print("Differences compared to mainline:")
+            for diff in differences:
+                print(f"  - {diff}")
+        else:
+            print("No differences found compared to mainline.")
+            
+        # Replace the existing entry instead of adding a duplicate
+        new_lines = lines[:existing_entry["start_idx"]] + c_struct_lines + lines[existing_entry["end_idx"] + 1:]
+    else:
+        insert_line_idx = -1
+        for entry in entries:
+            if entry["board_name"] and entry["board_name"] > model_name:
+                insert_line_idx = entry["start_idx"]
+                break
+        if insert_line_idx == -1:
+            insert_line_idx = array_end_idx
+        new_lines = lines[:insert_line_idx] + c_struct_lines + lines[insert_line_idx:]
     
     file_rel_path = "drivers/platform/x86/asus-armoury.h"
     diff_generator = difflib.unified_diff(
