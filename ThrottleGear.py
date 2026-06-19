@@ -24,7 +24,14 @@ def get_key_and_iv(model_name, version_str, type_str):
     return bytes(key), iv
 
 def _init_libcrypto():
-    for lib_name in ["libcrypto.so", "libcrypto.so.3", "libcrypto.so.1.1"]:
+    import ctypes.util
+    
+    lib_names = ["libcrypto.so", "libcrypto.so.3", "libcrypto.so.1.1"]
+    found = ctypes.util.find_library("crypto")
+    if found:
+        lib_names.insert(0, found)
+        
+    for lib_name in lib_names:
         try:
             lib = ctypes.CDLL(lib_name)
         except OSError:
