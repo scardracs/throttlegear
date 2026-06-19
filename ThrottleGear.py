@@ -38,6 +38,23 @@ def _init_libcrypto():
         except OSError:
             continue
             
+        required = [
+            "EVP_CIPHER_CTX_new",
+            "EVP_CIPHER_CTX_free",
+            "EVP_aes_256_cbc",
+            "EVP_DecryptInit_ex",
+            "EVP_DecryptUpdate",
+            "EVP_DecryptFinal_ex",
+            "EVP_EncryptInit_ex",
+            "EVP_EncryptUpdate",
+            "EVP_EncryptFinal_ex"
+        ]
+        try:
+            for sym in required:
+                getattr(lib, sym)
+        except AttributeError:
+            continue
+            
         lib.EVP_CIPHER_CTX_new.argtypes = []
         lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
         lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
@@ -48,8 +65,8 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p
+            ctypes.c_void_p,
+            ctypes.c_void_p
         ]
         lib.EVP_DecryptInit_ex.restype = ctypes.c_int
         
@@ -73,8 +90,8 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p
+            ctypes.c_void_p,
+            ctypes.c_void_p
         ]
         lib.EVP_EncryptInit_ex.restype = ctypes.c_int
         
@@ -179,7 +196,7 @@ def decrypt_xml(root, key):
             
             if cipher_val_elem is not None and cipher_val_elem.text:
                 cipher_b64 = cipher_val_elem.text.strip()
-                full_ciphertext = base64.b64decode(cipher_b64)
+                full_ciphertext = base64.b64decode(cipher_b64, validate=True)
                 if len(full_ciphertext) < 16:
                     raise ValueError("Ciphertext too short")
                 
@@ -196,6 +213,9 @@ def decrypt_xml(root, key):
                 decrypted_elem = ET.fromstring(decrypted_str)
                 decrypted_children.append(decrypted_elem)
                 
+    if not decrypted_children:
+        raise ValueError("No encrypted elements found")
+        
     root.clear()
     root.attrib["MinLoaderVersion"] = min_loader_version
     root.attrib["Cryptography"] = "Decrypted"
@@ -240,12 +260,14 @@ def encrypt_xml(root, key, iv):
     for child in encrypted_children:
         root.append(child)
 
-def process_file(input_path, output_path):
+def load_xml(input_path):
     try:
-        tree = ET.parse(input_path)
+        return ET.parse(input_path)
     except Exception as e:
         raise RuntimeError(f"Failed to parse input XML file: {e}") from e
-        
+
+def process_file(input_path, output_path):
+    tree = load_xml(input_path)
     root = tree.getroot()
     
     model_name = root.attrib.get("ModelName")
@@ -749,11 +771,7 @@ def main():
             
     try:
         if args.c_struct or args.generate_patch:
-            try:
-                tree = ET.parse(input_path)
-            except Exception as e:
-                raise RuntimeError(f"Failed to parse input XML file: {e}") from e
-                
+            tree = load_xml(input_path)
             root = tree.getroot()
             model_name = root.attrib.get("ModelName")
             version_str = root.attrib.get("Version")
