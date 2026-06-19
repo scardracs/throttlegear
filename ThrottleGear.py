@@ -173,8 +173,7 @@ def decrypt_xml(root, key):
                 cipher_b64 = cipher_val_elem.text.strip()
                 full_ciphertext = base64.b64decode(cipher_b64)
                 if len(full_ciphertext) < 16:
-                    sys.stderr.write("Error: Ciphertext too short to contain IV.\n")
-                    sys.exit(1)
+                    raise ValueError("Ciphertext too short")
                 
                 # In W3C XML Encryption, the IV is prepended to the ciphertext
                 extracted_iv = full_ciphertext[:16]
@@ -469,13 +468,15 @@ def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=Tr
     
     if ac_limits:
         lines.append("\t\t\t.ac_data = &(struct power_limits) {")
-        for key, val in ac_limits.items():
+        for key in sorted(ac_limits):
+            val = ac_limits[key]
             lines.append(f"\t\t\t\t.{key} = {val},")
         lines.append("\t\t\t},")
         
     if dc_limits:
         lines.append("\t\t\t.dc_data = &(struct power_limits) {")
-        for key, val in dc_limits.items():
+        for key in sorted(dc_limits):
+            val = dc_limits[key]
             lines.append(f"\t\t\t\t.{key} = {val},")
         lines.append("\t\t\t},")
         
