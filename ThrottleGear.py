@@ -141,7 +141,7 @@ def encrypt_aes_256_cbc(plaintext, key, iv):
     finally:
         _LIBCRYPTO.EVP_CIPHER_CTX_free(ctx)
 
-def decrypt_xml(root, key, iv):
+def decrypt_xml(root, key):
     min_loader_version = root.attrib.get("MinLoaderVersion", "5.7.7.0")
     decrypted_children = []
     
@@ -242,7 +242,7 @@ def process_file(input_path, output_path):
     
     if cryptography == "Encrypted":
         print("Decrypting XML file...")
-        decrypt_xml(root, key, iv)
+        decrypt_xml(root, key)
     elif cryptography == "Decrypted":
         print("Encrypting XML file...")
         encrypt_xml(root, key, iv)
@@ -731,7 +731,7 @@ def main():
             
         if cryptography == "Encrypted":
             key, iv = get_key_and_iv(model_name, version_str, type_str)
-            decrypt_xml(root, key, iv)
+            decrypt_xml(root, key)
             root.attrib["ModelName"] = model_name
             root.attrib["Version"] = version_str
             root.attrib["Type"] = type_str
