@@ -113,7 +113,10 @@ def decrypt_aes_256_cbc(ciphertext, key, iv):
             raise RuntimeError("EVP_DecryptUpdate failed")
             
         final_len = ctypes.c_int(0)
-        out_buf_final = ctypes.byref(out_buf, out_len.value)
+        out_buf_final = ctypes.cast(
+            ctypes.byref(out_buf, out_len.value),
+            ctypes.c_void_p
+        )
         if _LIBCRYPTO.EVP_DecryptFinal_ex(ctx, out_buf_final, ctypes.byref(final_len)) != 1:
             raise RuntimeError("EVP_DecryptFinal_ex failed")
             
@@ -139,7 +142,10 @@ def encrypt_aes_256_cbc(plaintext, key, iv):
             raise RuntimeError("EVP_EncryptUpdate failed")
             
         final_len = ctypes.c_int(0)
-        out_buf_final = ctypes.byref(out_buf, out_len.value)
+        out_buf_final = ctypes.cast(
+            ctypes.byref(out_buf, out_len.value),
+            ctypes.c_void_p
+        )
         if _LIBCRYPTO.EVP_EncryptFinal_ex(ctx, out_buf_final, ctypes.byref(final_len)) != 1:
             raise RuntimeError("EVP_EncryptFinal_ex failed")
             
@@ -162,8 +168,7 @@ def decrypt_xml(root, key):
             if enc_method_elem is not None:
                 algo = enc_method_elem.attrib.get("Algorithm")
                 if algo != "http://www.w3.org/2001/04/xmlenc#aes256-cbc":
-                    sys.stderr.write(f"Error: Unsupported encryption algorithm: {algo}\n")
-                    sys.exit(1)
+                    raise ValueError(f"Unsupported encryption algorithm: {algo}")
                     
             cipher_val_elem = elem.find(".//{http://www.w3.org/2001/04/xmlenc#}CipherValue")
             if cipher_val_elem is None:
@@ -180,7 +185,10 @@ def decrypt_xml(root, key):
                 actual_ciphertext = full_ciphertext[16:]
                 
                 decrypted_bytes = decrypt_aes_256_cbc(actual_ciphertext, key, extracted_iv)
-                decrypted_str = decrypted_bytes.decode('utf-8')
+                try:
+                    decrypted_str = decrypted_bytes.decode('utf-8')
+                except UnicodeDecodeError as e:
+                    raise RuntimeError("Decryption succeeded but XML is not valid UTF-8") from e
                 
                 decrypted_elem = ET.fromstring(decrypted_str)
                 decrypted_children.append(decrypted_elem)
@@ -233,8 +241,7 @@ def process_file(input_path, output_path):
     try:
         tree = ET.parse(input_path)
     except Exception as e:
-        print(f"Error: Failed to parse input XML file: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to parse input XML file: {e}") from e
         
     root = tree.getroot()
     
@@ -244,8 +251,7 @@ def process_file(input_path, output_path):
     cryptography = root.attrib.get("Cryptography")
     
     if not all([model_name, version_str, type_str, cryptography]):
-        print("Error: XML is missing required root attributes (ModelName, Version, Type, Cryptography).")
-        sys.exit(1)
+        raise ValueError("XML is missing required root attributes (ModelName, Version, Type, Cryptography).")
         
     key, iv = get_key_and_iv(model_name, version_str, type_str)
     
@@ -256,8 +262,7 @@ def process_file(input_path, output_path):
         print("Encrypting XML file...")
         encrypt_xml(root, key, iv)
     else:
-        print(f"Error: Unknown Cryptography status: {cryptography}")
-        sys.exit(1)
+        raise ValueError(f"Unknown Cryptography status: {cryptography}")
         
     # Restore model info attributes
     root.attrib["ModelName"] = model_name
@@ -272,8 +277,7 @@ def process_file(input_path, output_path):
     try:
         tree.write(output_path, encoding="utf-8", xml_declaration=False)
     except Exception as e:
-        print(f"Error: Failed to write output XML file: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to write output XML file: {e}") from e
         
     print(f"Success! Processed file saved to: {output_path}")
 
@@ -418,10 +422,10 @@ def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=Tr
         if profile_elem is None:
             profile_elem = root.find(f".//{profile}")
         if profile_elem is None:
-            sys.stderr.write(f"Error: Profile '{profile}' not found in XML.\n")
+            msg = f"Profile '{profile}' not found in XML."
             if available_profiles:
-                sys.stderr.write(f"Available profiles: {', '.join(available_profiles)}\n")
-            sys.exit(1)
+                msg += f" Available profiles: {', '.join(available_profiles)}"
+            raise ValueError(msg)
         cpu_settings = profile_elem.find(".//ThrottlePluginCPUSettings")
         gpu_settings = profile_elem.find(".//ThrottlePluginGPUSettings")
         profile_used = profile
@@ -499,14 +503,12 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
     if kernel_dir:
         target_path = os.path.abspath(os.path.join(kernel_dir, "drivers/platform/x86/asus-armoury.h"))
         if not os.path.exists(target_path):
-            sys.stderr.write(f"Error: Local header not found at: {target_path}\n")
-            sys.exit(1)
+            raise FileNotFoundError(f"Local header not found at: {target_path}")
         try:
             with open(target_path, "r", encoding="utf-8") as f:
                 header_content = f.read()
         except Exception as e:
-            sys.stderr.write(f"Error: Failed to read local header: {e}\n")
-            sys.exit(1)
+            raise RuntimeError(f"Failed to read local header: {e}") from e
     else:
         url = "https://raw.githubusercontent.com/torvalds/linux/master/drivers/platform/x86/asus-armoury.h"
         print("Fetching mainline asus-armoury.h from GitHub raw...")
@@ -518,8 +520,7 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
             with urllib.request.urlopen(req) as response:
                 header_content = response.read().decode('utf-8')
         except Exception as e:
-            sys.stderr.write(f"Error: Failed to fetch asus-armoury.h from GitHub raw: {e}\n")
-            sys.exit(1)
+            raise RuntimeError(f"Failed to fetch asus-armoury.h from GitHub raw: {e}") from e
             
     lines = header_content.splitlines()
     
@@ -530,8 +531,7 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
             break
             
     if start_idx == -1:
-        sys.stderr.write("Error: Could not find power_limits table in asus-armoury.h\n")
-        sys.exit(1)
+        raise RuntimeError("Could not find power_limits table in asus-armoury.h")
         
     entries = []
     current_entry_start = -1
@@ -569,8 +569,7 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
                 current_board_name = match.group(1)
                 
     if array_end_idx == -1:
-        sys.stderr.write("Error: Could not find end of power_limits table in asus-armoury.h\n")
-        sys.exit(1)
+        raise RuntimeError("Could not find end of power_limits table in asus-armoury.h")
         
     def parse_c_struct_limits(c_struct_lines):
         ac_limits = {}
@@ -659,6 +658,29 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
     )
     diff_str = "\n".join(diff_generator)
     
+    additions = 0
+    deletions = 0
+    for line in diff_str.splitlines():
+        if line.startswith("+++ ") or line.startswith("--- "):
+            continue
+        if line.startswith("+"):
+            additions += 1
+        elif line.startswith("-"):
+            deletions += 1
+            
+    total_changes = additions + deletions
+    stat_bar = "+" * additions + "-" * deletions
+    stat_line = f" {file_rel_path} | {total_changes} {stat_bar}"
+    
+    if additions > 0 and deletions > 0:
+        summary_line = f" 1 file changed, {additions} insertions(+), {deletions} deletions(-)"
+    elif additions > 0:
+        summary_line = f" 1 file changed, {additions} insertions(+)"
+    elif deletions > 0:
+        summary_line = f" 1 file changed, {deletions} deletions(-)"
+    else:
+        summary_line = " 0 files changed"
+        
     date_str = datetime.now().astimezone().strftime("%a, %d %b %Y %H:%M:%S %z")
     
     patch_content = f"""From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
@@ -673,8 +695,8 @@ file for the '{profile_name}' profile.
 Assisted-by: ThrottleGear
 Signed-off-by: {sob}
 ---
- drivers/platform/x86/asus-armoury.h | {len(c_struct_lines)} +
- 1 file changed, {len(c_struct_lines)} insertions(+)
+{stat_line}
+{summary_line}
 
 {diff_str}
 -- 
@@ -699,8 +721,7 @@ Signed-off-by: {sob}
             f.write(patch_content)
         print(f"Success! Kernel patch saved to: {patch_file_path}")
     except Exception as e:
-        sys.stderr.write(f"Error: Failed to write patch file: {e}\n")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to write patch file: {e}") from e
 
 def main():
     parser = argparse.ArgumentParser(description="ASUS ThrottleGear XML Encryptor/Decryptor & C Struct Generator (Pure Python)")
@@ -723,44 +744,46 @@ def main():
         if not args.username or not args.email:
             parser.error("-U/--username and -E/--email/--mail are required when -P/--generate-patch is specified.")
             
-    if args.c_struct or args.generate_patch:
-        try:
-            tree = ET.parse(input_path)
-        except Exception as e:
-            print(f"Error: Failed to parse input XML file: {e}")
-            sys.exit(1)
+    try:
+        if args.c_struct or args.generate_patch:
+            try:
+                tree = ET.parse(input_path)
+            except Exception as e:
+                raise RuntimeError(f"Failed to parse input XML file: {e}") from e
+                
+            root = tree.getroot()
+            model_name = root.attrib.get("ModelName")
+            version_str = root.attrib.get("Version")
+            type_str = root.attrib.get("Type")
+            cryptography = root.attrib.get("Cryptography")
             
-        root = tree.getroot()
-        model_name = root.attrib.get("ModelName")
-        version_str = root.attrib.get("Version")
-        type_str = root.attrib.get("Type")
-        cryptography = root.attrib.get("Cryptography")
-        
-        if not all([model_name, version_str, type_str, cryptography]):
-            print("Error: XML is missing required root attributes (ModelName, Version, Type, Cryptography).")
-            sys.exit(1)
+            if not all([model_name, version_str, type_str, cryptography]):
+                raise ValueError("XML is missing required root attributes (ModelName, Version, Type, Cryptography).")
+                
+            if cryptography == "Encrypted":
+                key, iv = get_key_and_iv(model_name, version_str, type_str)
+                decrypt_xml(root, key)
+                root.attrib["ModelName"] = model_name
+                root.attrib["Version"] = version_str
+                root.attrib["Type"] = type_str
+                
+            c_struct_str, profile_used = generate_c_struct(root, profile=args.profile, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
             
-        if cryptography == "Encrypted":
-            key, iv = get_key_and_iv(model_name, version_str, type_str)
-            decrypt_xml(root, key)
-            root.attrib["ModelName"] = model_name
-            root.attrib["Version"] = version_str
-            root.attrib["Type"] = type_str
-            
-        c_struct_str, profile_used = generate_c_struct(root, profile=args.profile, gpu_base_tgp=args.gpu_base_tgp, requires_fan_curve=not args.no_fan_curve)
-        
-        if args.generate_patch:
-            username_str = " ".join(args.username)
-            email_clean = args.email.strip("<>")
-            author_identity = f"{username_str} <{email_clean}>"
-            generate_patch_file(model_name, profile_used, c_struct_str, author_identity, author_identity, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
+            if args.generate_patch:
+                username_str = " ".join(args.username)
+                email_clean = args.email.strip("<>")
+                author_identity = f"{username_str} <{email_clean}>"
+                generate_patch_file(model_name, profile_used, c_struct_str, author_identity, author_identity, kernel_dir=args.kernel_dir, patch_dir=args.patch_dir)
+            else:
+                print(c_struct_str)
         else:
-            print(c_struct_str)
-    else:
-        if not args.output:
-            parser.error("-o/--output is required unless -c/--c-struct or -P/--generate-patch is specified.")
-        output_path = os.path.abspath(args.output)
-        process_file(input_path, output_path)
+            if not args.output:
+                parser.error("-o/--output is required unless -c/--c-struct or -P/--generate-patch is specified.")
+            output_path = os.path.abspath(args.output)
+            process_file(input_path, output_path)
+    except Exception as e:
+        sys.stderr.write(f"Error: {e}\n")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
