@@ -648,7 +648,7 @@ def generate_patch_file(model_name, profile_name, c_struct_str, author, sob, ker
     )
     diff_str = "\n".join(diff_generator)
     
-    date_str = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0200")
+    date_str = datetime.now().astimezone().strftime("%a, %d %b %Y %H:%M:%S %z")
     
     patch_content = f"""From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: {author}
