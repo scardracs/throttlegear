@@ -11,7 +11,8 @@ def get_key_and_iv(model_name, version_str, type_str):
     key = bytearray(32)
     key[0] = 1 if type_str == "DT" else 0
     model_bytes = model_name.encode('ascii')
-    key[1:1+len(model_bytes)] = model_bytes[:31]
+    copy_len = min(len(model_bytes), 31)
+    key[1:1+copy_len] = model_bytes[:copy_len]
     
     # GetIV logic
     parts = version_str.split('.')
@@ -37,16 +38,18 @@ def _init_libcrypto():
         except OSError:
             continue
             
+        lib.EVP_CIPHER_CTX_new.argtypes = []
         lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
         lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
+        lib.EVP_aes_256_cbc.argtypes = []
         lib.EVP_aes_256_cbc.restype = ctypes.c_void_p
         
         lib.EVP_DecryptInit_ex.argtypes = [
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p
+            ctypes.c_char_p,
+            ctypes.c_char_p
         ]
         lib.EVP_DecryptInit_ex.restype = ctypes.c_int
         
@@ -70,8 +73,8 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p
+            ctypes.c_char_p,
+            ctypes.c_char_p
         ]
         lib.EVP_EncryptInit_ex.restype = ctypes.c_int
         
