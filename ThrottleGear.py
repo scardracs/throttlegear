@@ -38,8 +38,8 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p
+            ctypes.c_void_p,
+            ctypes.c_void_p
         ]
         lib.EVP_DecryptInit_ex.restype = ctypes.c_int
         
@@ -47,7 +47,7 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.POINTER(ctypes.c_int),
-            ctypes.c_char_p,
+            ctypes.c_void_p,
             ctypes.c_int
         ]
         lib.EVP_DecryptUpdate.restype = ctypes.c_int
@@ -63,8 +63,8 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p
+            ctypes.c_void_p,
+            ctypes.c_void_p
         ]
         lib.EVP_EncryptInit_ex.restype = ctypes.c_int
         
@@ -72,7 +72,7 @@ def _init_libcrypto():
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.POINTER(ctypes.c_int),
-            ctypes.c_char_p,
+            ctypes.c_void_p,
             ctypes.c_int
         ]
         lib.EVP_EncryptUpdate.restype = ctypes.c_int
