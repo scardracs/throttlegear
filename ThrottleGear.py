@@ -172,6 +172,9 @@ def decrypt_xml(root, key):
             if cipher_val_elem is not None and cipher_val_elem.text:
                 cipher_b64 = cipher_val_elem.text.strip()
                 full_ciphertext = base64.b64decode(cipher_b64)
+                if len(full_ciphertext) < 16:
+                    sys.stderr.write("Error: Ciphertext too short to contain IV.\n")
+                    sys.exit(1)
                 
                 # In W3C XML Encryption, the IV is prepended to the ciphertext
                 extracted_iv = full_ciphertext[:16]
