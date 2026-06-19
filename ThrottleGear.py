@@ -304,8 +304,8 @@ def validate_limits(ac_limits, dc_limits, gpu_base_tgp):
                         
     return warnings
 
-def extract_cpu_ac_limits(cpu_settings):
-    """Extract CPU AC power limits from XML settings."""
+def extract_cpu_limits(cpu_settings, dc=False):
+    """Extract CPU AC/DC power limits from XML settings."""
     limits = {}
     if cpu_settings is None:
         return limits
@@ -313,6 +313,7 @@ def extract_cpu_ac_limits(cpu_settings):
     if overclock_items is None:
         return limits
         
+    prefix = "DC" if dc else ""
     for tag, field in [
         ("STAPM", "ppt_pl1_spl"),
         ("PPTLimit", "ppt_pl2_sppt"),
@@ -323,9 +324,9 @@ def extract_cpu_ac_limits(cpu_settings):
         elem = overclock_items.find(tag)
         if elem is not None and elem.attrib.get("IsEnabled") == "True":
             try:
-                min_val = int(elem.attrib.get("LowerLimit", 0))
-                max_val = int(elem.attrib.get("UpperLimit", 0))
-                def_val = int(elem.attrib.get("Manual", 0))
+                min_val = int(elem.attrib.get(f"{prefix}LowerLimit", 0))
+                max_val = int(elem.attrib.get(f"{prefix}UpperLimit", 0))
+                def_val = int(elem.attrib.get(f"{prefix}Manual", 0))
             except ValueError:
                 continue
             if min_val != 0 or max_val != 0:
@@ -335,106 +336,61 @@ def extract_cpu_ac_limits(cpu_settings):
                 limits[f"{field}_max"] = max_val
     return limits
 
-def extract_cpu_dc_limits(cpu_settings):
-    """Extract CPU DC power limits from XML settings."""
-    limits = {}
-    if cpu_settings is None:
-        return limits
-    overclock_items = cpu_settings.find("OverclockItems")
-    if overclock_items is None:
-        return limits
-        
-    for tag, field in [
-        ("STAPM", "ppt_pl1_spl"),
-        ("PPTLimit", "ppt_pl2_sppt"),
-        ("fPPTLimit", "ppt_pl3_fppt"),
-        ("APUsPPTLimit", "ppt_apu_sppt"),
-        ("PlatformsPPT", "ppt_platform_sppt")
-    ]:
-        elem = overclock_items.find(tag)
-        if elem is not None and elem.attrib.get("IsEnabled") == "True":
-            try:
-                min_val = int(elem.attrib.get("DCLowerLimit", 0))
-                max_val = int(elem.attrib.get("DCUpperLimit", 0))
-                def_val = int(elem.attrib.get("DCManual", 0))
-            except ValueError:
-                continue
-            if min_val != 0 or max_val != 0:
-                limits[f"{field}_min"] = min_val
-                if def_val != max_val and def_val != 0:
-                    limits[f"{field}_def"] = def_val
-                limits[f"{field}_max"] = max_val
-    return limits
-
-def extract_gpu_ac_limits(gpu_settings, gpu_base_tgp):
-    """Extract GPU AC limits from XML settings."""
+def extract_gpu_limits(gpu_settings, gpu_base_tgp=55, dc=False):
+    """Extract GPU AC/DC power limits from XML settings."""
     limits = {}
     if gpu_settings is None:
         return limits
     gpu_overclock = gpu_settings.find("NonSLIOverclockItems")
+    
+    prefix = "DC" if dc else ""
     if gpu_overclock is not None:
         # NBThermalTarget
         elem = gpu_overclock.find("NBThermalTarget")
         if elem is not None and elem.attrib.get("IsEnabled") == "True":
             try:
-                min_val = int(elem.attrib.get("LowerLimit", 0))
-                max_val = int(elem.attrib.get("UpperLimit", 0))
+                min_val = int(elem.attrib.get(f"{prefix}LowerLimit", 0))
+                max_val = int(elem.attrib.get(f"{prefix}UpperLimit", 0))
             except ValueError:
                 pass
             else:
                 if min_val != 0 or max_val != 0:
                     limits["nv_temp_target_min"] = min_val
                     limits["nv_temp_target_max"] = max_val
-        # DynamicBoost
-        elem = gpu_overclock.find("DynamicBoost")
-        if elem is not None and elem.attrib.get("IsEnabled") == "True":
-            try:
-                min_val = int(elem.attrib.get("LowerLimit", 0))
-                max_val = int(elem.attrib.get("UpperLimit", 0))
-            except ValueError:
-                pass
-            else:
-                if min_val != 0 or max_val != 0:
-                    limits["nv_dynamic_boost_min"] = min_val
-                    limits["nv_dynamic_boost_max"] = max_val
-    # TGP
-    tgp_items = gpu_settings.find("NonSLITGPItems")
-    if tgp_items is not None:
-        elem = tgp_items.find("TGPItem")
-        if elem is not None and elem.attrib.get("IsEnabled") == "True":
-            level_vals = []
-            for attr in elem.attrib:
-                if attr.startswith("Level"):
-                    try:
-                        level_vals.append(int(elem.attrib[attr]))
-                    except ValueError:
-                        pass
-            if level_vals:
-                min_offset = min(level_vals)
-                max_offset = max(level_vals)
-                limits["nv_tgp_min"] = gpu_base_tgp + min_offset
-                limits["nv_tgp_max"] = gpu_base_tgp + max_offset
-    return limits
-
-def extract_gpu_dc_limits(gpu_settings):
-    """Extract GPU DC limits from XML settings."""
-    limits = {}
-    if gpu_settings is None:
-        return limits
-    gpu_overclock = gpu_settings.find("NonSLIOverclockItems")
-    if gpu_overclock is not None:
-        # NBThermalTarget
-        elem = gpu_overclock.find("NBThermalTarget")
-        if elem is not None and elem.attrib.get("IsEnabled") == "True":
-            try:
-                min_val = int(elem.attrib.get("DCLowerLimit", 0))
-                max_val = int(elem.attrib.get("DCUpperLimit", 0))
-            except ValueError:
-                pass
-            else:
-                if min_val != 0 or max_val != 0:
-                    limits["nv_temp_target_min"] = min_val
-                    limits["nv_temp_target_max"] = max_val
+                    
+        # DynamicBoost (AC only)
+        if not dc:
+            elem = gpu_overclock.find("DynamicBoost")
+            if elem is not None and elem.attrib.get("IsEnabled") == "True":
+                try:
+                    min_val = int(elem.attrib.get("LowerLimit", 0))
+                    max_val = int(elem.attrib.get("UpperLimit", 0))
+                except ValueError:
+                    pass
+                else:
+                    if min_val != 0 or max_val != 0:
+                        limits["nv_dynamic_boost_min"] = min_val
+                        limits["nv_dynamic_boost_max"] = max_val
+                        
+    # TGP (AC only)
+    if not dc:
+        tgp_items = gpu_settings.find("NonSLITGPItems")
+        if tgp_items is not None:
+            elem = tgp_items.find("TGPItem")
+            if elem is not None and elem.attrib.get("IsEnabled") == "True":
+                level_vals = []
+                for attr in elem.attrib:
+                    if attr.startswith("Level"):
+                        try:
+                            level_vals.append(int(elem.attrib[attr]))
+                        except ValueError:
+                            pass
+                if level_vals:
+                    min_offset = min(level_vals)
+                    max_offset = max(level_vals)
+                    limits["nv_tgp_min"] = gpu_base_tgp + min_offset
+                    limits["nv_tgp_max"] = gpu_base_tgp + max_offset
+                    
     return limits
 
 def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=True):
@@ -480,13 +436,13 @@ def generate_c_struct(root, profile=None, gpu_base_tgp=55, requires_fan_curve=Tr
             
     # Extract AC limits
     ac_limits = {}
-    ac_limits.update(extract_cpu_ac_limits(cpu_settings))
-    ac_limits.update(extract_gpu_ac_limits(gpu_settings, gpu_base_tgp))
+    ac_limits.update(extract_cpu_limits(cpu_settings, dc=False))
+    ac_limits.update(extract_gpu_limits(gpu_settings, gpu_base_tgp=gpu_base_tgp, dc=False))
 
     # Extract DC limits
     dc_limits = {}
-    dc_limits.update(extract_cpu_dc_limits(cpu_settings))
-    dc_limits.update(extract_gpu_dc_limits(gpu_settings))
+    dc_limits.update(extract_cpu_limits(cpu_settings, dc=True))
+    dc_limits.update(extract_gpu_limits(gpu_settings, dc=True))
 
     # Perform validation checks
     warnings = validate_limits(ac_limits, dc_limits, gpu_base_tgp)
