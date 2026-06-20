@@ -14,7 +14,7 @@ fn print_help() {
     println!("  throttlegear -i <INPUT> [OPTIONS]");
     println!("\nOptions:");
     println!("  -i, --input <FILE>            Path to the input XML file (required)");
-    println!("  -o, --output <FILE>           Path to the output XML file (required unless -c or -P)");
+    println!("  -o, --output [<FILE>]         Path to the output XML file (optional suffix auto-derived if value omitted)");
     println!("  -c, --c-struct                Generate and print the C struct for the Linux kernel driver");
     println!("  -p, --profile, --device <P>   Specific profile/device tag to parse from XML (e.g. Ryzen, Eng)");
     println!("  -g, --gpu-base-tgp <WATTS>    NVIDIA base TGP in Watts (default: 55)");
@@ -25,6 +25,37 @@ fn print_help() {
     println!("  -U, --username <NAME>         Username of the patch author (e.g. 'Jane Doe')");
     println!("  -E, --email, --mail <EMAIL>   Email of the patch author (e.g. 'jane@example.com')");
     println!("  -h, --help                    Print help details");
+}
+
+fn derive_output_filename(input_path: &str, cryptography: &str) -> String {
+    let path = std::path::Path::new(input_path);
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
+    let file_stem = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let extension = path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("xml");
+
+    let mut stem = file_stem.to_string();
+    if stem.ends_with("_decrypted") {
+        stem.truncate(stem.len() - "_decrypted".len());
+    } else if stem.ends_with("_encrypted") {
+        stem.truncate(stem.len() - "_encrypted".len());
+    }
+
+    let suffix = if cryptography == "Encrypted" {
+        "_decrypted"
+    } else {
+        "_encrypted"
+    };
+
+    let new_filename = format!("{}{}.{}", stem, suffix, extension);
+    if parent.as_os_str().is_empty() {
+        new_filename
+    } else {
+        parent.join(new_filename).to_string_lossy().into_owned()
+    }
 }
 
 fn main() {
@@ -40,6 +71,7 @@ fn main() {
     let mut patch_dir = None;
     let mut username = None;
     let mut email = None;
+    let mut output_flag_present = false;
 
     let mut i = 1;
     while i < args_vec.len() {
@@ -58,12 +90,12 @@ fn main() {
                 }
             }
             "-o" | "--output" => {
-                if i + 1 < args_vec.len() {
+                output_flag_present = true;
+                if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
                     output = Some(args_vec[i + 1].clone());
                     i += 2;
                 } else {
-                    eprintln!("Error: Missing value for -o/--output");
-                    std::process::exit(1);
+                    i += 1;
                 }
             }
             "-c" | "--c-struct" => {
@@ -239,12 +271,16 @@ fn main() {
             println!("{}", c_struct_str);
         }
     } else {
-        let output_path = match output {
-            Some(path) => path,
-            None => {
-                eprintln!("Error: -o/--output is required unless -c/--c-struct or -P/--generate-patch is specified.");
-                std::process::exit(1);
+        let output_path = if output_flag_present {
+            match output {
+                Some(path) => path,
+                None => {
+                    derive_output_filename(&input_path, &cryptography)
+                }
             }
+        } else {
+            eprintln!("Error: -o/--output is required unless -c/--c-struct or -P/--generate-patch is specified.");
+            std::process::exit(1);
         };
 
         if cryptography == "Encrypted" {
@@ -276,5 +312,34 @@ fn main() {
         }
 
         println!("Success! Processed file saved to: {}", output_path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_output_filename() {
+        assert_eq!(
+            derive_output_filename("ThrottleGear_G614PR.xml", "Encrypted"),
+            "ThrottleGear_G614PR_decrypted.xml"
+        );
+        assert_eq!(
+            derive_output_filename("ThrottleGear_G614PR.xml", "Decrypted"),
+            "ThrottleGear_G614PR_encrypted.xml"
+        );
+        assert_eq!(
+            derive_output_filename("dir/subdir/ThrottleGear_G614PR.xml", "Encrypted"),
+            "dir/subdir/ThrottleGear_G614PR_decrypted.xml"
+        );
+        assert_eq!(
+            derive_output_filename("ThrottleGear_G614PR_decrypted.xml", "Decrypted"),
+            "ThrottleGear_G614PR_encrypted.xml"
+        );
+        assert_eq!(
+            derive_output_filename("ThrottleGear_G614PR_encrypted.xml", "Encrypted"),
+            "ThrottleGear_G614PR_decrypted.xml"
+        );
     }
 }
