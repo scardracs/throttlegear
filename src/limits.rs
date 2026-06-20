@@ -95,7 +95,9 @@ pub fn extract_cpu_limits(cpu_settings: &XmlElement, dc: bool) -> HashMap<String
     let prefix = if dc { "DC" } else { "" };
     let tags_and_fields = [
         ("STAPM", "ppt_pl1_spl"),
+        ("PL1", "ppt_pl1_spl"),
         ("PPTLimit", "ppt_pl2_sppt"),
+        ("PL2", "ppt_pl2_sppt"),
         ("fPPTLimit", "ppt_pl3_fppt"),
         ("APUsPPTLimit", "ppt_apu_sppt"),
         ("PlatformsPPT", "ppt_platform_sppt"),
@@ -347,3 +349,41 @@ pub fn generate_c_struct(
 
     Ok((lines.join("\n"), profile_used))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::xml_processor::parse_xml_str;
+
+    #[test]
+    fn test_extract_cpu_limits_intel() {
+        let xml_str = r#"
+        <ThrottlePluginCPUSettings IsEnabled="True" Vendor="INTEL">
+            <OverclockItems>
+                <PL1 IsEnabled="True" LowerLimit="25" UpperLimit="65" Manual="45" DCLowerLimit="15" DCUpperLimit="35" DCManual="25" />
+                <PL2 IsEnabled="True" LowerLimit="30" UpperLimit="70" Manual="50" DCLowerLimit="20" DCUpperLimit="40" DCManual="30" />
+            </OverclockItems>
+        </ThrottlePluginCPUSettings>
+        "#;
+        let root = parse_xml_str(xml_str).unwrap();
+
+        // Test AC (dc=false)
+        let ac_limits = extract_cpu_limits(&root, false);
+        assert_eq!(*ac_limits.get("ppt_pl1_spl_min").unwrap(), 25);
+        assert_eq!(*ac_limits.get("ppt_pl1_spl_max").unwrap(), 65);
+        assert_eq!(*ac_limits.get("ppt_pl1_spl_def").unwrap(), 45);
+        assert_eq!(*ac_limits.get("ppt_pl2_sppt_min").unwrap(), 30);
+        assert_eq!(*ac_limits.get("ppt_pl2_sppt_max").unwrap(), 70);
+        assert_eq!(*ac_limits.get("ppt_pl2_sppt_def").unwrap(), 50);
+
+        // Test DC (dc=true)
+        let dc_limits = extract_cpu_limits(&root, true);
+        assert_eq!(*dc_limits.get("ppt_pl1_spl_min").unwrap(), 15);
+        assert_eq!(*dc_limits.get("ppt_pl1_spl_max").unwrap(), 35);
+        assert_eq!(*dc_limits.get("ppt_pl1_spl_def").unwrap(), 25);
+        assert_eq!(*dc_limits.get("ppt_pl2_sppt_min").unwrap(), 20);
+        assert_eq!(*dc_limits.get("ppt_pl2_sppt_max").unwrap(), 40);
+        assert_eq!(*dc_limits.get("ppt_pl2_sppt_def").unwrap(), 30);
+    }
+}
+
