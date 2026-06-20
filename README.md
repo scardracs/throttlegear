@@ -64,6 +64,16 @@ python ThrottleGear.py -i ThrottleGear_YOURMODEL.xml -c
 
 ---
 
+## Running Unit Tests
+
+This project includes a comprehensive unit test suite written using Python's standard `unittest` library. You can run all tests with:
+
+```bash
+python -m unittest discover -s tests
+```
+
+---
+
 ## Legal Disclaimer
 
 **IMPORTANT: Read this before proceeding.**
