@@ -120,13 +120,18 @@ fn main() {
                 }
             }
             "-U" | "--username" => {
-                if i + 1 < args_vec.len() {
-                    username = Some(args_vec[i + 1].clone());
-                    i += 2;
-                } else {
+                let mut name_parts = Vec::new();
+                let mut next_idx = i + 1;
+                while next_idx < args_vec.len() && !args_vec[next_idx].starts_with('-') {
+                    name_parts.push(args_vec[next_idx].clone());
+                    next_idx += 1;
+                }
+                if name_parts.is_empty() {
                     eprintln!("Error: Missing value for -U/--username");
                     std::process::exit(1);
                 }
+                username = Some(name_parts.join(" "));
+                i = next_idx;
             }
             "-E" | "--email" | "--mail" => {
                 if i + 1 < args_vec.len() {
