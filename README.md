@@ -18,6 +18,7 @@ To run this tool, you only need:
 ## File Structure
 
 - [ThrottleGear.py](ThrottleGear.py): The standalone Python script.
+- [tests/](tests): Contains the automated unit test suite.
 - [DETAILS.md](Documentation/DETAILS.md): Detailed explanation of the cryptography internals and parameter derivation.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Contribution guidelines.
 - [LICENSE](LICENSE): The MIT License for the Python script.
