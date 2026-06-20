@@ -1,4 +1,4 @@
-# ThrottleGear XML Encryptor/Decryptor (Rust Version)
+# ThrottleGear XML Encryptor/Decryptor
 
 This repository contains a standalone Rust application designed to decrypt and encrypt ASUS ThrottleGear configuration XML files (such as those used by Armoury Crate) and generate corresponding quirk patches for the Linux kernel.
 
