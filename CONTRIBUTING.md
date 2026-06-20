@@ -29,18 +29,18 @@ As in the Linux Kernel, we follow the principles of correctness and simplicity a
    ```
 
 2. **Implement and Test**:
-   - Write clean, PEP 8-compliant Python code.
-   - Ensure pointer safety when working with `ctypes` bindings.
-   - Refactor helper routines to raise standard exceptions (e.g., `ValueError`, `RuntimeError`) rather than calling `sys.exit(1)` directly.
-   - Verify that your changes compile and execute correctly using your xml file.
+   - Write clean, idiomatic Rust code conforming to standard `rustfmt` guidelines.
+   - Ensure safety when working with FFI bindings to system dynamic libraries.
+   - Refactor helper routines to raise standard Rust error types (e.g. `Result` / `Err`) rather than panicking or calling `std::process::exit(1)` directly.
+   - Verify that your changes compile and execute correctly using your XML file.
 
 3. **Format and Document Your Patch**:
- - Format your patch as a unified diff with clear sections:
-    - **Problem Analysis**: Description of the issue and root cause.
-    - **Proposed Solution**: Design rationale and alternatives considered.
-    - **Patch**: Unified diff of the changes.
-    - **Validation**: Describe build verification and test results.
-    - **Risk Assessment**: Classify the change (Low, Medium, High Risk) with justification.
+   Format your patch as a unified diff with clear sections:
+   - **Problem Analysis**: Description of the issue and root cause.
+   - **Proposed Solution**: Design rationale and alternatives considered.
+   - **Patch**: Unified diff of the changes.
+   - **Validation**: Describe build verification and test results.
+   - **Risk Assessment**: Classify the change (Low, Medium, High Risk) with justification.
 
 ---
 
@@ -69,4 +69,5 @@ Signed-off-by: Your Real Name <your.email@example.com>
 Before considering your changes complete, verify:
 - Code parsing succeeds with all flags combinations (e.g., `-c`, `-P`, `-n`, `-g`).
 - XML decryption/encryption roundtrips match base64 formats.
-- No untracked cache directories or debugging files (like `__pycache__` or temporary XMLs) are left in the repository.
+- Rust unit tests pass successfully (`cargo test`).
+- No untracked cache directories or debugging files (like `target/` or temporary XMLs) are left in the repository.
