@@ -38,6 +38,141 @@ fn find_best_entry<'a>(entries: &'a [Entry], model_name: &str) -> (Option<&'a En
     }
 }
 
+fn parse_line_field_and_val(line: &str) -> Option<(String, i32)> {
+    let dot_idx = line.find('.')?;
+    let eq_idx = line[dot_idx..].find('=')?;
+    let field = line[dot_idx + 1..dot_idx + eq_idx].trim().to_string();
+    let val_str: String = line[dot_idx + eq_idx + 1..]
+        .chars()
+        .take_while(|c| c.is_digit(10) || *c == '-')
+        .collect();
+    let val = val_str.trim().parse::<i32>().ok()?;
+    Some((field, val))
+}
+
+fn update_existing_entry_in_place(
+    existing_lines: &[String],
+    new_ac: &HashMap<String, i32>,
+    new_dc: &HashMap<String, i32>,
+    new_fan: Option<bool>,
+    superseded_model: Option<&str>,
+) -> Vec<String> {
+    let mut updated = Vec::new();
+    let mut in_ac = false;
+    let mut in_dc = false;
+    let mut in_driver_data = false;
+
+    let mut processed_ac = HashMap::new();
+    let mut processed_dc = HashMap::new();
+    let mut processed_fan = false;
+
+    for line in existing_lines {
+        // Track sections
+        if line.contains(".driver_data") {
+            in_driver_data = true;
+        }
+        if line.contains(".ac_data") {
+            in_ac = true;
+        } else if line.contains(".dc_data") {
+            in_dc = true;
+        }
+
+        // Check if we match the board name DMI match line
+        if line.contains("DMI_MATCH(DMI_BOARD_NAME,") {
+            if let Some(superseded) = superseded_model {
+                updated.push(format!("\t\t\tDMI_MATCH(DMI_BOARD_NAME, \"{}\"),", superseded));
+                continue;
+            }
+        }
+
+        // Handle limits fields
+        if in_ac || in_dc {
+            if let Some((field, old_val)) = parse_line_field_and_val(line) {
+                let new_val_opt = if in_ac {
+                    new_ac.get(&field)
+                } else {
+                    new_dc.get(&field)
+                };
+
+                if let Some(&new_val) = new_val_opt {
+                    if in_ac {
+                        processed_ac.insert(field.clone(), true);
+                    } else {
+                        processed_dc.insert(field.clone(), true);
+                    }
+
+                    if new_val == old_val {
+                        updated.push(line.clone());
+                    } else {
+                        let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+                        updated.push(format!("{}.{} = {},", indent, field, new_val));
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Handle requires_fan_curve
+        if in_driver_data && line.contains("requires_fan_curve") {
+            if let Some(fan) = new_fan {
+                processed_fan = true;
+                let old_fan = line.contains("true");
+                if fan == old_fan {
+                    updated.push(line.clone());
+                } else {
+                    let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+                    updated.push(format!("{}.requires_fan_curve = {},", indent, fan));
+                }
+                continue;
+            }
+        }
+
+        // Check if closing brace of ac_data or dc_data
+        if in_ac && line.trim().starts_with('}') {
+            let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+            let mut keys: Vec<&String> = new_ac.keys().collect();
+            keys.sort();
+            for key in keys {
+                if !processed_ac.contains_key(key) {
+                    updated.push(format!("\t{}.{} = {},", indent, key, new_ac.get(key).unwrap()));
+                }
+            }
+            in_ac = false;
+        }
+
+        if in_dc && line.trim().starts_with('}') {
+            let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+            let mut keys: Vec<&String> = new_dc.keys().collect();
+            keys.sort();
+            for key in keys {
+                if !processed_dc.contains_key(key) {
+                    updated.push(format!("\t{}.{} = {},", indent, key, new_dc.get(key).unwrap()));
+                }
+            }
+            in_dc = false;
+        }
+
+        // Check if closing brace of driver_data
+        if in_driver_data && line.trim() == "}," && !in_ac && !in_dc {
+            let tab_count = line.chars().take_while(|c| *c == '\t').count();
+            let space_count = line.chars().take_while(|c| *c == ' ').count();
+            if tab_count == 2 || space_count == 8 {
+                if let Some(fan) = new_fan {
+                    if !processed_fan {
+                        updated.push(format!("\t\t\t.requires_fan_curve = {},", fan));
+                        processed_fan = true;
+                    }
+                }
+                in_driver_data = false;
+            }
+        }
+
+        updated.push(line.clone());
+    }
+
+    updated
+}
+
 fn parse_c_struct_limits(
     c_struct_lines: &[String],
 ) -> (HashMap<String, i32>, HashMap<String, i32>, Option<bool>) {
@@ -321,14 +456,13 @@ pub fn generate_patch_file(
             println!("No differences found compared to mainline.");
         }
 
-        let mut final_c_struct_lines = c_struct_lines.clone();
-        if let Some(ref superseded_model) = superseded_by {
-            for line in final_c_struct_lines.iter_mut() {
-                if line.contains("DMI_MATCH(DMI_BOARD_NAME,") {
-                    *line = format!("\t\t\tDMI_MATCH(DMI_BOARD_NAME, \"{}\"),", superseded_model);
-                }
-            }
-        }
+        let final_c_struct_lines = update_existing_entry_in_place(
+            &lines[entry.start_idx..=entry.end_idx],
+            &new_ac,
+            &new_dc,
+            new_fan,
+            superseded_by.as_deref(),
+        );
 
         let mut res = Vec::new();
         res.extend_from_slice(&lines[..entry.start_idx]);
@@ -465,5 +599,53 @@ mod tests {
         let (entry, superseded) = find_best_entry(&entries, "GU502");
         assert!(entry.is_none());
         assert!(superseded.is_none());
+    }
+
+    #[test]
+    fn test_update_existing_entry_in_place() {
+        let existing = vec![
+            "\t{".to_string(),
+            "\t\t.matches = {".to_string(),
+            "\t\t\tDMI_MATCH(DMI_BOARD_NAME, \"GU604V\"),".to_string(),
+            "\t\t},".to_string(),
+            "\t\t.driver_data = &(struct power_data) {".to_string(),
+            "\t\t\t.ac_data = &(struct power_limits) {".to_string(),
+            "\t\t\t\t.ppt_pl1_spl_min = 65,".to_string(),
+            "\t\t\t\t.ppt_pl1_spl_max = 120,".to_string(),
+            "\t\t\t},".to_string(),
+            "\t\t\t.dc_data = &(struct power_limits) {".to_string(),
+            "\t\t\t\t.ppt_pl1_spl_min = 25,".to_string(),
+            "\t\t\t\t.ppt_pl1_spl_max = 40,".to_string(),
+            "\t\t\t\t.ppt_pl2_sppt_def = 40,".to_string(),
+            "\t\t\t},".to_string(),
+            "\t\t},".to_string(),
+            "\t},".to_string(),
+        ];
+
+        let mut new_ac = HashMap::new();
+        new_ac.insert("ppt_pl1_spl_min".to_string(), 65); // identical
+        new_ac.insert("ppt_pl1_spl_max".to_string(), 130); // modified
+
+        let mut new_dc = HashMap::new();
+        new_dc.insert("ppt_pl1_spl_min".to_string(), 25); // identical
+        new_dc.insert("ppt_pl1_spl_max".to_string(), 40); // identical
+
+        let updated = update_existing_entry_in_place(
+            &existing,
+            &new_ac,
+            &new_dc,
+            Some(true),
+            Some("GU604V"),
+        );
+
+        // Verification:
+        // 1. DMI match line preserved as GU604V
+        assert!(updated.iter().any(|l| l.contains("DMI_MATCH(DMI_BOARD_NAME, \"GU604V\")")));
+        // 2. AC pl1_spl_max updated to 130
+        assert!(updated.iter().any(|l| l.contains(".ppt_pl1_spl_max = 130")));
+        // 3. DC pl2_sppt_def preserved
+        assert!(updated.iter().any(|l| l.contains(".ppt_pl2_sppt_def = 40")));
+        // 4. requires_fan_curve appended
+        assert!(updated.iter().any(|l| l.contains(".requires_fan_curve = true")));
     }
 }
