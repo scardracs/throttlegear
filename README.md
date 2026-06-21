@@ -20,7 +20,8 @@ To compile and run this tool, you need:
 ## File Structure
 
 - [Cargo.toml](Cargo.toml): Cargo configuration and metadata.
-- [build.rs](build.rs): Build script linking the binary against the system's `-lcrypto`.
+- [Makefile](Makefile): Automation script to compile and name versioned binaries.
+- [CHANGELOG.md](CHANGELOG.md): History of project versions and changes.
 - [src/](src): The Rust source code modules.
   - [src/main.rs](src/main.rs): Command-line argument parsing and program routing.
   - [src/crypto.rs](src/crypto.rs): FFI declarations, AES-256-CBC logic, and base64 helper implementation.
@@ -28,6 +29,7 @@ To compile and run this tool, you need:
   - [src/limits.rs](src/limits.rs): Power limit extraction and validation.
   - [src/patch.rs](src/patch.rs): main-line quirk generation and unified diff patching.
 - [DETAILS.md](Documentation/DETAILS.md): Detailed explanation of the cryptography internals and parameter derivation.
+- [CODEBASE.md](Documentation/CODEBASE.md): Overview of the source code module structure.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Contribution guidelines.
 - [LICENSE](LICENSE): GNU Affero General Public License version 3 (AGPLv3).
 
@@ -37,26 +39,26 @@ To compile and run this tool, you need:
 
 ## Installation & Build
 
-Compile the application in release mode:
+Compile the application and generate a versioned binary:
 ```bash
-cargo build --release
+make
 ```
-The compiled executable will be located at `target/release/throttlegear`.
+The compiled executable will be named `ThrottleGear-$(VERSION)` at the root directory of the workspace.
 
 ---
 
 ## How to Proceed
 
-To run the tool, specify the input file (`-i` / `--input`) and the output file (`-o` / `--output`):
+To run the tool, specify the input file (`-i` / `--input`) and the output option (`-o` / `--output`):
 
 ### Decrypting an Encrypted XML file:
 ```bash
-./target/release/throttlegear -i ThrottleGear_YOURMODEL.xml -o ThrottleGear_YOURMODEL_decrypted.xml
+./ThrottleGear-<version> -i ThrottleGear_YOURMODEL.xml -o
 ```
 
 ### Encrypting a Plain-Text XML file:
 ```bash
-./target/release/throttlegear -i ThrottleGear_YOURMODEL_decrypted.xml -o ThrottleGear_YOURMODEL_encrypted.xml
+./ThrottleGear-<version> -i ThrottleGear_YOURMODEL_decrypted.xml -o
 ```
 
 Upon successful completion, the script will output:
@@ -68,7 +70,7 @@ Success! Processed file saved to: /path/to/output.xml
 If you are using this tool to compile a quirk entry for the Linux kernel `asus-armoury` driver, you can use the `-c` / `--c-struct` argument. This automatically decrypts the XML in-memory if needed, extracts the power/thermal limits, and formats them as a C struct initialization block:
 
 ```bash
-./target/release/throttlegear -i ThrottleGear_YOURMODEL.xml -c
+./ThrottleGear-<version> -i ThrottleGear_YOURMODEL.xml -c
 ```
 
 **Additional Options for C Struct & Patch Generation:**
