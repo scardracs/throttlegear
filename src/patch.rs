@@ -532,7 +532,7 @@ pub fn generate_patch_file(
          \n\
          {}\n\
          -- \n\
-         2.34.1\n",
+         2.54.0\n",
         author, local_time, action_str, target_model, action_str, target_model, profile_name, sob, stat_line, summary_line, diff_str
     );
 
