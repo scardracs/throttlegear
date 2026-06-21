@@ -9,6 +9,35 @@ struct Entry {
     end_idx: usize,
 }
 
+fn find_best_entry<'a>(entries: &'a [Entry], model_name: &str) -> (Option<&'a Entry>, Option<String>) {
+    for entry in entries {
+        if entry.board_name.as_deref() == Some(model_name) {
+            return (Some(entry), None);
+        }
+    }
+
+    let mut best_prefix: Option<&Entry> = None;
+    for entry in entries {
+        if let Some(ref board) = entry.board_name {
+            if model_name.starts_with(board) {
+                if let Some(curr) = best_prefix {
+                    if board.len() > curr.board_name.as_ref().unwrap().len() {
+                        best_prefix = Some(entry);
+                    }
+                } else {
+                    best_prefix = Some(entry);
+                }
+            }
+        }
+    }
+
+    if let Some(entry) = best_prefix {
+        (Some(entry), entry.board_name.clone())
+    } else {
+        (None, None)
+    }
+}
+
 fn parse_c_struct_limits(
     c_struct_lines: &[String],
 ) -> (HashMap<String, i32>, HashMap<String, i32>, Option<bool>) {
@@ -225,16 +254,14 @@ pub fn generate_patch_file(
 
     let c_struct_lines: Vec<String> = c_struct_str.lines().map(|s| s.to_string()).collect();
 
-    let mut existing_entry = None;
-    for entry in &entries {
-        if entry.board_name.as_deref() == Some(model_name) {
-            existing_entry = Some(entry);
-            break;
-        }
-    }
+    let (existing_entry, superseded_by) = find_best_entry(&entries, model_name);
 
     let new_lines = if let Some(entry) = existing_entry {
-        println!("\n[INFO] Quirk for model '{}' already exists in asus-armoury.h.", model_name);
+        if let Some(ref superseded_model) = superseded_by {
+            println!("\n[INFO] Quirk for model '{}' is superseded by existing entry '{}' in asus-armoury.h.", model_name, superseded_model);
+        } else {
+            println!("\n[INFO] Quirk for model '{}' already exists in asus-armoury.h.", model_name);
+        }
 
         let (existing_ac, existing_dc, existing_fan) = parse_c_struct_limits(&lines[entry.start_idx..=entry.end_idx]);
         let (new_ac, new_dc, new_fan) = parse_c_struct_limits(&c_struct_lines);
@@ -294,9 +321,18 @@ pub fn generate_patch_file(
             println!("No differences found compared to mainline.");
         }
 
+        let mut final_c_struct_lines = c_struct_lines.clone();
+        if let Some(ref superseded_model) = superseded_by {
+            for line in final_c_struct_lines.iter_mut() {
+                if line.contains("DMI_MATCH(DMI_BOARD_NAME,") {
+                    *line = format!("\t\t\tDMI_MATCH(DMI_BOARD_NAME, \"{}\"),", superseded_model);
+                }
+            }
+        }
+
         let mut res = Vec::new();
         res.extend_from_slice(&lines[..entry.start_idx]);
-        res.extend_from_slice(&c_struct_lines);
+        res.extend_from_slice(&final_c_struct_lines);
         res.extend_from_slice(&lines[entry.end_idx + 1..]);
         res
     } else {
@@ -341,13 +377,16 @@ pub fn generate_patch_file(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "Mon, 01 Jan 2000 00:00:00 +0000".to_string());
 
+    let action_str = if existing_entry.is_some() { "Update" } else { "Add" };
+    let target_model = superseded_by.as_deref().unwrap_or(model_name);
+
     let patch_content = format!(
         "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n\
          From: {}\n\
          Date: {}\n\
-         Subject: [PATCH] platform/x86: asus-armoury: Add power limits quirk for {}\n\
+         Subject: [PATCH] platform/x86: asus-armoury: {} power limits quirk for {}\n\
          \n\
-         Add power limits quirk entry for ASUS ROG {} laptop.\n\
+         {} power limits quirk entry for ASUS ROG {} laptop.\n\
          The limits are extracted from the device's ThrottleGear XML configuration\n\
          file for the '{}' profile.\n\
          \n\
@@ -360,7 +399,7 @@ pub fn generate_patch_file(
          {}\n\
          -- \n\
          2.34.1\n",
-        author, local_time, model_name, model_name, profile_name, sob, stat_line, summary_line, diff_str
+        author, local_time, action_str, target_model, action_str, target_model, profile_name, sob, stat_line, summary_line, diff_str
     );
 
     let pdir = patch_dir.unwrap_or("patches");
@@ -378,4 +417,53 @@ pub fn generate_patch_file(
 
     println!("Success! Kernel patch saved to: {:?}", patch_file_path);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_best_entry() {
+        let entries = vec![
+            Entry {
+                board_name: Some("GU604V".to_string()),
+                start_idx: 10,
+                end_idx: 20,
+            },
+            Entry {
+                board_name: Some("GU604".to_string()),
+                start_idx: 30,
+                end_idx: 40,
+            },
+            Entry {
+                board_name: Some("G614PR".to_string()),
+                start_idx: 50,
+                end_idx: 60,
+            },
+        ];
+
+        // Exact match
+        let (entry, superseded) = find_best_entry(&entries, "G614PR");
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().start_idx, 50);
+        assert!(superseded.is_none());
+
+        // Prefix match (superseded by GU604V)
+        let (entry, superseded) = find_best_entry(&entries, "GU604VI");
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().start_idx, 10);
+        assert_eq!(superseded, Some("GU604V".to_string()));
+
+        // Broader prefix match (superseded by GU604)
+        let (entry, superseded) = find_best_entry(&entries, "GU604A");
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().start_idx, 30);
+        assert_eq!(superseded, Some("GU604".to_string()));
+
+        // No match
+        let (entry, superseded) = find_best_entry(&entries, "GU502");
+        assert!(entry.is_none());
+        assert!(superseded.is_none());
+    }
 }
