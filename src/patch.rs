@@ -515,8 +515,7 @@ pub fn generate_patch_file(
     let target_model = superseded_by.as_deref().unwrap_or(model_name);
 
     let patch_content = format!(
-        "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n\
-         From: {}\n\
+        "From: {}\n\
          Date: {}\n\
          Subject: [PATCH] platform/x86: asus-armoury: {} power limits quirk for {}\n\
          \n\
@@ -524,7 +523,6 @@ pub fn generate_patch_file(
          The limits are extracted from the device's ThrottleGear XML configuration\n\
          file for the '{}' profile.\n\
          \n\
-         Assisted-by: ThrottleGear\n\
          Signed-off-by: {}\n\
          ---\n\
          {}\n\
