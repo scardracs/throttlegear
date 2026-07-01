@@ -15,6 +15,8 @@ As in the Linux Kernel, we follow the principles of correctness and simplicity a
 3. **Preserve backwards compatibility** for existing CLI usage and XML formats.
 4. **Minimize scope**: Solve exactly the reported issue, avoiding unrelated cleanups or feature creep in the same patch.
 5. **No direct master commits**: Never commit directly to the `master` branch. Always use short-lived feature branches.
+6. **AI Usage**: You are free to use any AI/LLM of your liking but you are ultimately the one pushing it. You **must** always know what yuour code do.
+7. **AI Report**: If you are going to use AI report it using the flag Assisted-by: IDE:AI-model.
 
 ---
 
